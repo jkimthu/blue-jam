@@ -1,0 +1,121 @@
+---
+title: "phyloseq analysis for blue-jam project"
+author: "jen nguyen"
+date: "9/7/2021"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(here)
+library(phyloseq)
+library(Biostrings)
+library(tidyverse)
+theme_set(theme_bw())
+```
+
+```{r}
+# Construct sample data.frame by reading sample data from sample_metadata.csv
+meta <- read_csv(here("data","meta","sample_metadata.csv"),
+                      col_types = cols(
+                        Name = col_character(),
+                        Extraction = col_date(format = ""),
+                        Mouse = col_double(),
+                        Location = col_character(),
+                      ))
+df <- meta %>% column_to_rownames("Name") # data frame with same structure as ben's example
+```
+
+```{r}
+# Load sequence tables and taxonomic assignments (R datasheets) output from dada2 analysis
+seqtab <- readRDS(here("output","dada2","seqtable.rds"))
+seqtab.nochim <- readRDS(here("output","dada2","seqtable_nochimeras.rds"))
+taxa <- readRDS(here("output","dada2","taxonomic_assignments.rds"))
+```
+
+```{r}
+# Construct a phyloseq object directly from the dada2 outputs
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), 
+               sample_data(df), 
+               tax_table(taxa))
+# i skipped the line where Ben removes the mock sample
+```
+
+```{r}
+# short names for ASVs
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna)
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+ps
+```
+
+```{r}
+# Visualize alpha diversity
+plot_richness(ps, x="sample.names", measures=c("Shannon", "Simpson"), color="Location")
+```
+I received this error message:
+
+The data you have provided does not have
+any singletons. This is highly suspicious. Results of richness
+estimates (for example) are probably unreliable, or wrong, if you have already
+trimmed low-abundance taxa from the data.
+
+We recommended that you find the un-trimmed data and retry.
+
+
+```{r}
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(ps, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+```
+
+```{r}
+# Bray-Curtis ordination
+plot_ordination(ps.prop, ord.nmds.bray, color="Location", title="Bray NMDS")
+```
+```{r}
+# Bar plot, top 20
+top20 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:20]
+ps.top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+ps.top20 <- prune_taxa(top20, ps.top20)
+plot_bar(ps.top20, x="Mouse", fill="Family") + facet_wrap(~Location, scales="free_x")
+```
+
+```{r}
+# Bar plot
+top40 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:40]
+ps.top40 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+ps.top40 <- prune_taxa(top40, ps.top40)
+plot_bar(ps.top40, x="Mouse", fill="Family") + facet_wrap(~Location, scales="free_x")
+```
+
+
+```{r}
+
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
