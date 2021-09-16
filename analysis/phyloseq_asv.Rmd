@@ -1,5 +1,5 @@
 ---
-title: "phyloseq analysis for blue-jam project"
+title: "phyloseq analysis for blue-jam project (ASV level)"
 author: "jen nguyen"
 date: "9/7/2021"
 output: html_document
@@ -70,20 +70,14 @@ taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
 ps
 ```
 
-```{r confirm that "abundance" in melted ps is post-filtering reads per sample}
-ps.m1 = subset_samples(ps, Mouse == "1")
-m1 <- psmelt(ps.m1) %>%
-  ggplot(aes(x=Location, y=Abundance, fill=Phylum)) +
-  geom_col()
-print(m1)
-```
 
 Which ASVs are similarly abundant across sample locations?
 Which ASVs differ in abundance across sample locations?
 
 Analysis 1: calculate relative abundance of each ASV within each sample.
-Analysis 2: determine change in relative abundance of each ASV between luminal and mucus
-Analysis 3: determine change in relative abundance of each ASB between mucus and tissue
+Analysis 2: classify types of ASVs to plot with thresholds
+Analysis 3: determine change in relative abundance of each ASV between luminal and mucus
+Analysis 4: determine change in relative abundance of each ASV between mucus and tissue
 
 
 ```{r analysis1-1}
@@ -103,123 +97,118 @@ Are Bacteroidota generally more abundant in crypts/tissue than Firmicutes? Or is
 
 
 ```{r melt ps object into dataframe}
-df <- ps %>%
-  tax_glom("Family") %>%
+dfasv <- ps %>%
+#  tax_glom("Family") %>%
   psmelt %>%
   with_groups(Sample, mutate, Proportion = Abundance / sum(Abundance))
-#  group_by(Sample) %>%
-#  mutate(Proportion = Abundance / sum(Abundance)) %>%
-#  ungroup
 ```
 
 ```{r analysis1.2}
-df %>%
+dfasv %>%
   filter(Replicate != 1) %>%
-  ggplot(aes(x=Mouse, y=Abundance, fill= Family)) + 
-  geom_col() + facet_wrap(~Location,scales = 'free_x')
+  ggplot(aes(x=Mouse, y=Abundance, fill= Genus)) + 
+  geom_col() + facet_wrap(~Location,scales = 'free') +
+  theme(legend.position = 'none')
 ```
 
 ```{r analysis1.3}
-df %>%
+dfasv %>%
   filter(Replicate != 1) %>%
-  ggplot(aes(x=Mouse, y=Proportion, fill= Family)) + 
-  geom_col() + facet_wrap(~Location, scales = 'free_x')
-```
-
-```{r analysis1.4 read counts across samples}
-df %>%
-  ggplot(aes(x=Sample, y=Abundance, fill= Family)) + 
-  geom_col() + facet_wrap(~Mouse,scales = 'free_x') +
+  ggplot(aes(x=Mouse, y=Proportion, fill= Genus)) + 
+  geom_col() + facet_wrap(~Location, scales = 'free_x') +
   theme(legend.position = 'none')
 ```
+Fairly high proportion of each sample are ASVs of unspecified genera.
+First thought: continue analysis at ASV level and create a threshold without filtering for ASVs with assignments.
+Secondary thought: how many ASVs get assigned to the same genera? Same species (this would require running a different assignment than that in the DADA2 tutorial)?
 
-```{r analysis1.5 community proportions across samples}
-df %>%
-  ggplot(aes(x=Sample, y=Proportion, fill= Family)) + 
-  geom_col() + facet_wrap(~Mouse,scales = 'free_x') +
+We don't want to plot 349 ASVs
+Instead, filter ASVs that get plotted by the following rules:
+   1. ASV must represent 0.1% of community (proportion in samples when present > 0.001)
+   2. ASV must change by one standard deviation = 20% of ASV mean proportion (across samples)
+   3. ASV must change in same direction (+/-) across all sample pairs
+
+ - Present but noisy ASVs are those that satisfy #1 & 2 but not #3.
+ - Present but no change are those that satisfy #1 but not #2 or 3.
+ - Lowly abundant ASVs don't even satisfy #1.
+ 
+# First try! ASV grouping across all samples
+
+```{r analysis2 classify ASVs with thresholds}
+thresh1 <- dfasv %>%
+  with_groups(OTU, mutate, mean_Proportion = mean(Proportion)) %>% 
+  filter(mean_Proportion > 0.001) 
+```
+
+```{r}
+thresh1 %>%
+  ggplot(aes(x=Mouse, y=Proportion, color= Genus)) + 
+  geom_point() + facet_wrap(~Location,scales = 'free_x') +
+  ylim(0, 0.005) +
   theme(legend.position = 'none')
 ```
+```{r}
+thresh2 <- thresh1 %>%
+  filter(Replicate != 1) %>%
+#  tax_glom("Family") %>%
+  with_groups(OTU, mutate, SD_asv = sd(Proportion))
+
+thresh2 <- thresh2 %>% 
+  filter(SD_asv > 0.05)
+```
+
 
 ```{r analysis2 luminal vs mucus, all 3 pairs}
-df %>%
+thresh2 %>%
   filter(Location %in% c('Luminal', 'Mucus'), Replicate != 1) %>%
   ggplot(aes(Location, Proportion, color = Family)) +
   geom_point() +
   geom_line(aes(group = Mouse)) +
-  facet_wrap(~Family, scales = 'free_y') +
+  facet_wrap(~OTU, scales = 'free_y') +
   theme(legend.position = 'none')
 ```
 
 ```{r analysis3.0 mucus vs tissue, 6 pairs}
-df %>%
+thresh2 %>%
   filter(Location %in% c('Mucus', 'Tissue'), Replicate != 1) %>%
   ggplot(aes(Location, Proportion, color = Family)) +
   geom_point() +
   geom_line(aes(group = Mouse)) +
-  facet_wrap(~Family, scales = 'free_y') +
+  facet_wrap(~OTU, scales = 'free_y') +
   theme(legend.position = 'none')
 ```
 ```{r analysis3.1 mucus vs. tissue, 3 gentle pairs}
-df %>%
+thresh2 %>%
   filter(Location %in% c('Mucus', 'Tissue'), Extraction == "2021-07-23", Replicate != 1) %>%
   ggplot(aes(Location, Proportion, color = Family)) +
   geom_point() +
   geom_line(aes(group = Mouse)) +
-  facet_wrap(~Family, scales = 'free_y') +
+  facet_wrap(~OTU, scales = 'free_y') +
   theme(legend.position = 'none')
 ```
-Increased:
-  1. [1,2] Acholeplasmataceae
-  2. [1,4] Akkermansiaceae
-  3. [3,3] Erysipelotrichaeceae
-  4. [4,4] Muribaculaceae
 
-Decreased:
-  1. [1,5] Anaerovoracaceae (though lowly abundant)
 
-No change/not really there:
-  1. [1,1] Coprostanoligenes
-  2. [1,6] Bacillaceae
-  3. [2,2] Bifidobacteriaceae
-  4. [2,3] Butyricicoccaceae
-  5. [2,4] Christensenellaceae
-  6. [3,1] Eggerthellaceae
-  7. [3,2] Enterobacteriaceae
-  8. [3,4] Fusobacteriaceae
-  9. [3,5] Lachnospiraceae
-  10. [3,6] Lactobacillaceae
-  11. [3,7] Methanobacteriaceae
-  12. [4,1] Microbacteriaceae
-  13. [4,2] Mitochondria
-  14. [4,3] Monoglobaceae
-  15. [5,1] Planococcaceae
-  16. [5,3] Pseudomonadaceae
-  17. [5,6] Sutterellaceae
-  18. [5,7] UCG-010
-  19. [6,2] Xanthobacteraceae
 
-Present, but noisy:
-  1. [1,3] Acidaminococcaceae
-  2. [1,7] Bacteroidaceae
-  3. [1,8] Barnesiellaceae
-  4. [2,5] Clostridiaceae
-  5. [2,6] Comanmonadaceae
-  6. [2,7] Defluviitaleaceae
-  7. [4,5] Oscillospiraceae
-  8. [4,6] Peptococcaceae
-  9. [4,7] Peptostreptococcaceae
-  10. [5,2] Prevotellaceae
-  11. [5,4] Rikenellaceae
-  12. [5,5] Ruminococcaceae
-  13. [6,1] Veillonellaceae
 
+# Try 2! Grouping by pairs
+
+Try 2 strategy:
+with_group: mouse -> calculate change per ASV in (1) luminal-mucus and (2) mucus-tissue, store new columns
+then plot by columns based on filtering by value of calculated change
+
+```{r analysis2 threshold 1, try2}
+
+```
+
+
+# Oldies from phyloseq_fam
 ```{r analysis3.2 mucus vs tissue, 3 hard pairs}
-df %>%
+thresh2 %>%
   filter(Location %in% c('Mucus', 'Tissue'), Extraction == "2021-07-30") %>%
   ggplot(aes(Location, Proportion, color = Family)) +
   geom_point() +
   geom_line(aes(group = Mouse)) +
-  facet_wrap(~Family, scales = 'free_y') +
+  facet_wrap(~OTU, scales = 'free_y') +
   theme(legend.position = 'none')
 ```
 Do trends between gentle or harder scraping preps change? What could lead to change?
@@ -328,72 +317,6 @@ Does one method of scraping group in pairs and one method seem affect their like
 
 # scratch work
 
-```{r confirm that "abundance" in melted ps is post-filtering reads per sample}
-ps.m1 = subset_samples(ps, Mouse == "1")
-mouse1 = psmelt(ps.m1)
-colnames(mouse1)
-m1 = ggplot(mouse1, aes(x=Location, y=Abundance, fill=Phylum))
-m1 = m1 + geom_bar(color="black", stat="identity", position="stack") #+ facet_wrap(~Mouse)
-print(m1)
-```
-
-```{r analysis1}
-# transform abundance from read counts to rel abundundance per sample
-ps.m1.rel <- transform_sample_counts(ps.m1, function(OTU) OTU/sum(OTU)) 
-mouse1.rel = psmelt(ps.m1.rel)
-colnames(mouse1.rel)
-m1r = ggplot(mouse1.rel, aes(x=Location, y=Abundance, fill=Phylum))
-m1r = m1r + geom_bar(color="black", stat="identity", position="stack") #+ facet_wrap(~Mouse)
-print(m1r)
-```
-
-```{r}
-# Bar plot, top 20 most abundant families
-top20 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:20]
-ps.top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
-ps.top20 <- prune_taxa(top20, ps.top20)
-plot_bar(ps.top20, x="Mouse", fill="Family") + facet_wrap(~Location, scales="free_x")
-```
-
-Plotting the top 20 families only gets us <75% of reads in some samples, <25% of reads than in others. Try plotting more families, say 40. See below!
-
-
-```{r}
-# Bar plot, top 40 most abundant families
-top40 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:40]
-ps.top40 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
-ps.top40 <- prune_taxa(top40, ps.top40)
-plot_bar(ps.top40, x="Mouse", fill="Family") + facet_wrap(~Location, scales="free_x")
-```
-Hm, after including most abundant 40 families, now we see abundances of over 1... 
-Something is not right. What are we actually plotting?
-
-
-
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
 
 ```{r}

@@ -1,0 +1,23 @@
+Well,Sample,Dilution,Conc,Original_conc,Status,Supermix,Accepted_droplets,Positives,Negatives,Location,Mouse,Replicate,Pair,Method
+A01,JN01,2000,775.94,"3,103,759.77",Manual,ddPCR EvaGreen Supermix,18467,8918,9549,Luminal,1,0,NA,NA
+B01,JN02,2000,15.64,"62,541.77",Manual,ddPCR EvaGreen Supermix,18709,247,18462,Mucus,1,0,1,gentle
+C01,JN03,2000,467.74,"1,870,962.40",Manual,ddPCR EvaGreen Supermix,18884,6195,12689,Tissue,1,0,1,gentle
+D01,JN04,2000,2497.46,"9,989,855.47",Manual,ddPCR EvaGreen Supermix,18882,16622,2260,Luminal,2,0,NA,NA
+E01,JN05,2000,205.41,"821,621.34",Manual,ddPCR EvaGreen Supermix,19157,3069,16088,Mucus,2,0,2,gentle
+F01,JN06,2000,736.41,"2,945,637.94",Manual,ddPCR EvaGreen Supermix,18674,8688,9986,Tissue,2,0,2,gentle
+G01,JN07,2000,2333.74,"9,334,946.29",Manual,ddPCR EvaGreen Supermix,19562,16871,2691,Luminal,3,0,NA,NA
+H01,JN08,2000,112.89,"451,558.50",Manual,ddPCR EvaGreen Supermix,19356,1771,17585,Mucus,3,0,3,gentle
+A02,JN09,2000,709.53,"2,838,114.75",Manual,ddPCR EvaGreen Supermix,18689,8464,10225,Tissue,3,0,3,gentle
+B02,JN10,2000,464.93,"1,859,701.42",Manual,ddPCR EvaGreen Supermix,18487,6035,12452,Mucus,3,1,4,hard
+C02,JN11,2000,183.64,"734,557.07",Manual,ddPCR EvaGreen Supermix,19236,2780,16456,Tissue,3,1,4,hard
+D02,JN12,2000,421.24,"1,684,963.38",Manual,ddPCR EvaGreen Supermix,18753,5644,13109,Mucus,4,0,5,hard
+E02,JN13,2000,641.42,"2,565,693.60",Manual,ddPCR EvaGreen Supermix,18935,7958,10977,Tissue,4,0,5,hard
+F02,JN14,2000,572.51,"2,290,028.56",Manual,ddPCR EvaGreen Supermix,19151,7379,11772,Mucus,5,0,6,hard
+G02,JN15,2000,526.48,"2,105,930.42",Manual,ddPCR EvaGreen Supermix,17742,6401,11341,Tissue,5,0,6,hard
+H02,JN16,2000,99.57,"398,299.80",Manual,ddPCR EvaGreen Supermix,18446,1497,16949,Mucus,6,0,7,hard
+A03,JN17,2000,791.23,"3,164,939.70",Manual,ddPCR EvaGreen Supermix,18740,9175,9565,Tissue,6,0,7,hard
+B03,JN18,2000,2.25,"8,991.18",Manual,ddPCR EvaGreen Supermix,18860,36,18824,Extraction_ctl,NA,0,NA,NA
+E10,NTC1,1,2.48,4.96,Manual,ddPCR EvaGreen Supermix,19014,40,18974,Mock,NA,0,NA,NA
+F10,NTC2,1,2.82,5.65,Manual,ddPCR EvaGreen Supermix,18769,45,18724,Mock,NA,1,NA,NA
+G10,blank1,,No Call,#VALUE!,CHECK,ddPCR EvaGreen Supermix,0,0,0,Water,NA,0,NA,NA
+H10,blank2,,No Call,#VALUE!,CHECK,ddPCR EvaGreen Supermix,0,0,0,Water,NA,1,NA,NA

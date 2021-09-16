@@ -1,0 +1,183 @@
+---
+title: "ddpcr"
+author: "jen nguyen"
+date: "9/9/2021"
+output: html_document
+---
+
+```{r initialize}
+library(ggplot2)
+library(here)
+library(phyloseq)
+library(Biostrings)
+library(tidyverse)
+#theme_set(theme_bw())
+```
+
+```{r read sample metadata into data frame}
+meta <- read_csv(here("data","meta","sample_metadata.csv"),
+                      col_types = cols(
+                        Name = col_character(),
+                        Extraction = col_date(format = ""),
+                        Mouse = col_double(),
+                        Replicate = col_double(),
+                        Location = col_character(),
+                      ))
+df <- meta %>% column_to_rownames("Name") # data frame with same structure as ben's example
+```
+
+```{r read ddPCR data}
+d0 <- read_csv(here("data","ddPCR","G4H_data_ddPCR_20210812.csv"),
+                   col_types = cols(
+                     Well = col_character(),
+                     Sample = col_character(),
+                     Dilution = col_double(),
+                     Conc = col_double(),
+                     Original_conc = col_double(),
+                     Status = col_character(),
+                     Supermix = col_character(),
+                     Accepted_droplets = col_double(),
+                     Positives = col_double(),
+                     Negatives = col_double(),
+                     Location = col_character(),
+                     Mouse = col_double(),
+                     Replicate = col_double(),
+                     Pair = col_double(),
+                     Method = col_character()
+                   ))
+```
+
+General Questions:
+
+1. how does 16S copy # vary across sample location (lumen, mucus, tissue)?
+2. how variable is total 16S copy # of mucus + tissue between gut segments? how variable is it between mice?
+3. is total 16S copy # of mucus + tissue correlated with 16S copy # from lumen?
+
+
+Questions that get at whether gentle (mucus & tissue samples <10) or harder scraping makes a difference in how we measure mucus and tissue communities:
+
+4. is microbial load (as estimated by ddPCR) different between mucus and tissue?
+5. what proportion of total 16S copy # of mucus + tissue is from mucus?
+
+```{r question 1}
+# 1. how does 16S copy number vary across sample location (lumen, mucus, tissue)?
+d0 %>%
+  filter(Location != 'Water') %>%
+  ggplot(aes(Sample, Conc, color = Location)) +
+  geom_point() +
+  facet_wrap(~Mouse, scales = 'free_x')
+```
+
+```{r question 2a}
+# 2. how variable is total 16S copy number of mucus + tissue between gut segments? how variable is it between mice?
+d0 %>% 
+  ggplot(aes(x = Pair, y = Conc, fill = Location)) +
+  geom_col()
+```
+Pair 1 = mouse 1, first cm (gentle)
+Pair 2 = mouse 2, first cm (gentle)
+Pair 3 = mouse 3, first cm (gentle)
+Pair 4 = mouse 3, second cm (gentle)
+Pair 5 = mouse 4, first cm (harder)
+Pair 6 = mouse 5, first cm (harder)
+Pair 7 = mouse 6, first cm (harder)
+
+The total number of reads (mucus + tissue) is not substantially different between gentle and harder scrapings, though seems to trend higher in harder scraped samples.
+
+Proportion of mucus reads appears increased in harder scrapings, and the proportion of reads from tissue decreased. Could we be taking tissue associated bacteria from T?
+It seems that mucus should be more bacteria dense, and therefore it may rather be that we are more fully collecting mucus with harder scrapings.
+
+This latter hypothesis would be supported by the observation that the taxonomic composition of mucus vs. tissue are more distinct in harder scrapings.
+
+
+```{r question 2b}
+# 2. how variable is total 16S copy number of mucus + tissue between gut segments and/or type of scraping?
+d1 <- d0 %>%
+  with_groups(Pair, mutate, S = sum(Conc))          # S = dna conc from mucus (M) + tissue (T) for each gut segment
+
+d1 %>% 
+  filter(Location %in% c('Mucus', 'Tissue')) %>%
+  ggplot(aes(x = Method, y = S, color = Method)) +
+  geom_point()
+```
+```{r question 2c}
+# 2. how variable is total 16S copy number of mucus + tissue between mice?
+d1 %>% 
+  filter(Location %in% c('Mucus', 'Tissue')) %>%
+  ggplot(aes(x = Mouse, y = S, color = Method)) +
+  geom_point()
+```
+
+
+```{r question 3}
+# 3. is total 16S copy conc of mucus + tissue correlated with 16S copy concentration from lumen?
+d2g <- d1 %>% 
+  filter(Replicate != 1) %>%  # NOOO. this removes pair 4 altogether
+  with_groups(Mouse, mutate, Luminal_conc = sum(Conc)-S)
+
+d2g[,17][d2g[,17] == 0] <- NA
+
+d2g %>% 
+  filter(Location %in% c('Mucus', 'Tissue')) %>%
+  ggplot(aes(x = Luminal_conc, y = Conc, color = Location)) +
+  geom_point() +
+  geom_line(aes(group = Location))
+
+```
+Positive correlation between luminal concentration from gut segment (or nearby) and 
+the 16S concentration measured from mucus and tissue with gentle scraping.
+
+The only mucus + tissue pair associated with a luminal measurement and collected with a hard scraping
+was JN10 and JN11. (Associated luminal sample was JN07.)
+Luminal = 2333.74
+Mucus = 464.93
+Tissue = 183.64
+
+
+```{r question 3, eval=FALSE, include=FALSE}
+# 3. is total 16S copy conc of mucus + tissue correlated with 16S copy concentration from lumen?
+
+hloc <- c('Luminal', 'Mucus', 'Tissue')
+hconc <- c(2333.74, 464.93, 183.64)
+hlumc <- c(2333.74, 2333.74, 2333.74)
+
+d2h <- data.frame(hloc, hconc, hlumc)
+d2h %>% 
+  filter(hloc %in% c('Mucus', 'Tissue')) %>% 
+  ggplot(aes(x = hlumc, y = hconc, color = hloc)) +
+  geom_point()
+
+```
+^still learning how to overlay data from different dataframes using ggplot....
+
+
+```{r question 4}
+# 4. is microbial load (as estimated by ddPCR) different between mucus and tissue?
+# 5. what proportion of total 16S copy # of mucus + tissue is from mucus?
+
+d1 <- dddata %>%
+  with_groups(Pair, mutate, Fraction_of_S = Conc / sum(Conc)) 
+
+d1 %>%
+  ggplot(aes(x = Pair, y = Fraction_of_S, fill = Location)) +
+  geom_col()
+```
+Harder scraping technique increases proportion of total reads in mucus. This increase in M can result from either:
+1. harder scraping collects more mucus and more bacteria
+2. harder scraping collects some tissue-associated bugs
+
+
+How to distinguish between these two scenarios?
+
+Mucus should be more bacteria dense (REF), and therefore it may rather be that we are more fully collecting mucus with harder scrapings.
+
+This latter hypothesis would be supported by the observation that the taxonomic composition of mucus vs. tissue are more distinct in harder scrapings.
+
+Crypt-specific core microbiota of mouse colon (Pédron et al. 2012)
+Abundant in crypts:
+1. Proteobacteria (Phyl); Moraxellaceae (Fam); Acinetobacter (Genus): 40-50% of crypt microbiome vs. 2% in lumen
+2. Proteobacteria (Phyl); Comamonadaceae (Fam); Comomonas (Genus): 2-8% of crypt microbiome
+3. Proteobacteria (Phyl); Xanthomonadaceae (Fam); Stenotrophomonas (Genus): 1-30% of crypt microbiome
+
+Not in crypts, abundant in lumen:
+1. Firmicutes = majority of luminal sequences, basically absent from crypts
