@@ -1,5 +1,7 @@
 ---
 title: "dada2 analysis for blue-jam project"
+author: "jen nguyen"
+date: "9/7/2021"
 output: html_notebook
 ---
 
