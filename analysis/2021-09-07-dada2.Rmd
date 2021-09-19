@@ -12,6 +12,7 @@ library(here)
 library(phyloseq)
 library(Biostrings)
 library(tidyverse)
+library(fs)
 ```
 
 ```{r}
@@ -24,7 +25,7 @@ list.files(path_raw)
 # Forward and reverse fastq filenames have format: SAMPLENAME_R1_001.fastq and SAMPLENAME_R2_001.fastq
 fnFs <- sort(list.files(path_raw, pattern="_R1_001.fastq", full.names = TRUE))
 fnRs <- sort(list.files(path_raw, pattern="_R2_001.fastq", full.names = TRUE))
-print(fnFs)
+fnFs %>% path_file %>% head
 ```
 
 ```{r}
@@ -159,13 +160,26 @@ This increased trimming/truncation is especially possible with shorter reads (V4
 
 ```{r}
 # getting the right name for our taxonomy database files
-here('data', 'database') |> list.files()
+here('data', 'database') %>% list.files()
 ```
 
 
 ```{r}
 # Assign Taxonomy using the training set
-taxa <- assignTaxonomy(seqtab.nochim, here("data", "database", "silva_nr99_v138.1_train_set.fa.gz"), multithread=TRUE)
+taxa <- assignTaxonomy(
+  seqtab.nochim, 
+  here("data", "database", "silva_nr99_v138.1_train_set.fa.gz"),
+  multithread=TRUE
+)
+```
+
+```{r}
+# Add species
+taxa <- addSpecies(
+  taxa, 
+  here("data", "database", "silva_species_assignment_v138.1.fa.gz"),
+  allowMultiple = TRUE
+)
 ```
 
 ```{r}
@@ -182,7 +196,7 @@ unqs.mock <- sort(unqs.mock[unqs.mock>0], decreasing=TRUE) # Drop ASVs absent in
 cat("DADA2 inferred", length(unqs.mock), "sample sequences present in the Mock community.\n")
 ```
 The ZymoBIOMICS Gut Microbiome Standard has 21 species!
-Less truncation gave 21 sample species in Mock Community whereas more truncation gives 29!
+Less truncation gave 21 ASVs in Mock Community whereas more truncation gives 29!
 
 ```{r}
 # Evaluate Accuracy 
