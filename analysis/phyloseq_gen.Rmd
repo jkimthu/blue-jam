@@ -1,0 +1,467 @@
+---
+title: "phyloseq analysis for blue-jam project: family level"
+author: "jen nguyen"
+date: "9/16/2021"
+output: html_document
+---
+
+Questions in this analysis:
+
+1. Are there taxa that consistently change in abundance (ratio) between mucus and tissue samples?
+    
+This analysis is performed at genus level.
+
+
+```{r initialize, include=FALSE}
+library(ggplot2)
+library(here)
+library(phyloseq)
+library(Biostrings)
+library(tidyverse)
+theme_set(theme_bw())
+```
+
+```{r read sample metadata into data frame}
+meta <- read_csv(here("data","meta","sample_metadata.csv"),
+                      col_types = cols(
+                        Name = col_character(),
+                        Extraction = col_date(format = ""),
+                        Mouse = col_double(),
+                        Replicate = col_double(),
+                        Location = col_character(),
+                        Pair = col_double()
+                      ))
+df <- meta %>% column_to_rownames("Name") # data frame with same structure as ben's example
+```
+
+```{r load dada2 outputs}
+seqtab <- readRDS(here("output","dada2","seqtable.rds")) # raw sequence table
+seqtab.nochim <- readRDS(here("output","dada2","seqtable_nochimeras.rds")) # sequence table w/o chimeras
+taxa <- readRDS(here("output","dada2","taxonomic_assignments.rds")) # taxonomic assignments
+```
+
+```{r construct phyloseq object from dada2 output}
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), 
+               sample_data(df), 
+               tax_table(taxa))
+```
+
+```{r ASV short names}
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna)
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+ps
+```
+
+```{r melt ps object into dataframe}
+df <- ps %>%
+  tax_glom("Genus") %>%
+  psmelt %>%
+  with_groups(Sample, mutate, Proportion = Abundance / sum(Abundance))
+#  group_by(Sample) %>%
+#  mutate(Proportion = Abundance / sum(Abundance)) %>%
+#  ungroup
+```
+
+```{r question 1}
+
+```
+
+
+```{r analysis3.0 mucus vs tissue, all pairs}
+df %>%
+  filter(Location %in% c('Mucus', 'Tissue')) %>%
+  ggplot(aes(Location, Proportion, color = Family)) +
+  geom_point() +
+  geom_line(aes(group = Pair)) +
+  facet_wrap(~Genus, scales = 'free_y')+
+  theme(legend.position = 'none')
+```
+77 unique genera
+Time to visualize only those with sum of paired abundances >= 0.01
+
+```{r analysis3.1 mucus vs tissue, range of change}
+
+# identify list of unique genera
+uniqGenera <- unique(df$Genus) 
+
+# iterate through genera and calculate sum of paired abundance and change in abundance (mucus to tissue), save vectors
+#dfpairs <- df %>% 
+#  filter(Location %in% c('Mucus', 'Tissue'))
+sumPP <- vector("double", length(uniqGenera))
+deltaP <- vector("double", length(uniqGenera))
+deltaSD <- vector("double", length(uniqGenera))
+presence <- vector("double", length(uniqGenera))
+Family <- vector("double", length(uniqGenera))
+
+for (i in seq_along(uniqGenera)) {
+  dfi <- df %>% 
+    filter(Genus == uniqGenera[i]) %>% 
+    filter(Location %in% c('Mucus', 'Tissue')) %>% 
+    with_groups(Pair, mutate, SumProp = sum(Proportion))
+  
+  gensumprop = mean(dfi$SumProp)
+  sumPP[i] <- gensumprop
+  
+  uniqPairs <- unique(dfi$Pair) 
+  dProp <- vector("double", length(uniqPairs))
+  for (p in seq_along(uniqPairs)) {
+    dfip <- dfi %>% 
+      filter(Pair == p)
+    propM <- dfip %>% 
+      filter(Location == 'Mucus')
+    propT <- dfip %>% 
+      filter(Location == 'Tissue')
+    dProp[p] <- propT$Proportion - propM$Proportion
+  }
+
+  dProp <- na_if(dProp, 0)
+  deltaP[i] <- mean(dProp, na.rm=TRUE)
+  deltaSD[i] <- sd(dProp, na.rm=TRUE)
+  presence[i] <- max(uniqPairs) - sum(is.na(dProp))
+  Family[i] <- propM$Family
+    
+}
+```
+
+
+```{r}
+differential.abundance <- data.frame(uniqGenera, deltaP, deltaSD, presence, Family, stringsAsFactors=FALSE)
+dap <- differential.abundance %>% 
+  ggplot(aes(uniqGenera,deltaP)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=deltaP-deltaSD, ymax=deltaP+deltaSD), width=.2,
+                 position=position_dodge(.9)) +
+  facet_wrap(~Family, scales = 'free')
+
+dap + theme(axis.text.x=element_blank())
+```
+```{r}
+differential.abundance <- data.frame(uniqGenera, deltaP, deltaSD, presence, Family, stringsAsFactors=FALSE)
+dap <- differential.abundance %>% 
+  filter(Family %in% c('Anaerovoraceae', 'Lachnospiraceae','Oscillospiraceae','Prevotellaceae','Ruminococcaceae')) %>% 
+  ggplot(aes(uniqGenera,deltaP)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=deltaP-deltaSD, ymax=deltaP+deltaSD), width=.2,
+                 position=position_dodge(.9)) +
+  facet_wrap(~Family, scales = 'free')
+
+dap + theme(axis.text.x=element_blank())
+```
+
+```{r analysis3.1 mucus vs tissue, abundant pairs with (+) change}
+df %>%
+  filter(Location %in% c('Mucus', 'Tissue')) %>%
+  with_groups(Pair, mutate, SumProp = sum(Proportion)) %>%
+  filter(SumProp >= 0.01) %>%
+  
+  ggplot(aes(Location, Proportion, color = Family)) +
+  geom_point() +
+  geom_line(aes(group = Pair)) +
+  facet_wrap(~Genus, scales = 'free_y') +
+  theme(legend.position = 'none')
+```
+
+
+# scratch work
+```{r confirm that "abundance" in melted ps is post-filtering reads per sample}
+ps.m1 = subset_samples(ps, Mouse == "1")
+m1 <- psmelt(ps.m1) %>%
+  ggplot(aes(x=Location, y=Abundance, fill=Phylum)) +
+  geom_col()
+print(m1)
+```
+
+
+```{r analysis1-1}
+m1r <- ps.m1 %>%
+  # transform abundance from read counts to rel abundance per sample
+  tax_glom("Phylum") %>%
+  transform_sample_counts(function(OTU) OTU/sum(OTU)) %>%
+  psmelt %>%
+  ggplot(aes(x=Location, y=Abundance, fill=Phylum)) + 
+  geom_col() #+ facet_wrap(~Mouse)
+print(m1r)
+```
+
+Questions inspired from the above plot:
+Are the Cyanobacteria and Verricomicrobiota real? Or contamination?
+Are Bacteroidota generally more abundant in crypts/tissue than Firmicutes? Or is this noise from low read count?
+
+
+
+```{r analysis1.4 read counts across samples}
+df %>%
+  ggplot(aes(x=Sample, y=Abundance, fill= Family)) + 
+  geom_col() + facet_wrap(~Mouse,scales = 'free_x') +
+  theme(legend.position = 'none')
+```
+
+```{r analysis1.5 community proportions across samples}
+df %>%
+  ggplot(aes(x=Sample, y=Proportion, fill= Family)) + 
+  geom_col() + facet_wrap(~Mouse,scales = 'free_x') +
+  theme(legend.position = 'none')
+```
+
+```{r analysis2 luminal vs mucus, all 3 pairs}
+df %>%
+  filter(Location %in% c('Luminal', 'Mucus'), Replicate != 1) %>%
+  ggplot(aes(Location, Proportion, color = Family)) +
+  geom_point() +
+  geom_line(aes(group = Mouse)) +
+  facet_wrap(~Family, scales = 'free_y') +
+  theme(legend.position = 'none')
+```
+
+```{r analysis3.0 mucus vs tissue, 6 pairs}
+df %>%
+  filter(Location %in% c('Mucus', 'Tissue'), Replicate != 1) %>%
+  ggplot(aes(Location, Proportion, color = Family)) +
+  geom_point() +
+  geom_line(aes(group = Mouse)) +
+  facet_wrap(~Family, scales = 'free_y') +
+  theme(legend.position = 'none')
+```
+```{r analysis3.1 mucus vs. tissue, 3 gentle pairs}
+df %>%
+  filter(Location %in% c('Mucus', 'Tissue'), Extraction == "2021-07-23", Replicate != 1) %>%
+  ggplot(aes(Location, Proportion, color = Family)) +
+  geom_point() +
+  geom_line(aes(group = Mouse)) +
+  facet_wrap(~Family, scales = 'free_y') +
+  theme(legend.position = 'none')
+```
+Increased:
+  1. [1,2] Acholeplasmataceae
+  2. [1,4] Akkermansiaceae
+  3. [3,3] Erysipelotrichaeceae
+  4. [4,4] Muribaculaceae
+
+Decreased:
+  1. [1,5] Anaerovoracaceae (though lowly abundant)
+
+No change/not really there:
+  1. [1,1] Coprostanoligenes
+  2. [1,6] Bacillaceae
+  3. [2,2] Bifidobacteriaceae
+  4. [2,3] Butyricicoccaceae
+  5. [2,4] Christensenellaceae
+  6. [3,1] Eggerthellaceae
+  7. [3,2] Enterobacteriaceae
+  8. [3,4] Fusobacteriaceae
+  9. [3,5] Lachnospiraceae
+  10. [3,6] Lactobacillaceae
+  11. [3,7] Methanobacteriaceae
+  12. [4,1] Microbacteriaceae
+  13. [4,2] Mitochondria
+  14. [4,3] Monoglobaceae
+  15. [5,1] Planococcaceae
+  16. [5,3] Pseudomonadaceae
+  17. [5,6] Sutterellaceae
+  18. [5,7] UCG-010
+  19. [6,2] Xanthobacteraceae
+
+Present, but noisy:
+  1. [1,3] Acidaminococcaceae
+  2. [1,7] Bacteroidaceae
+  3. [1,8] Barnesiellaceae
+  4. [2,5] Clostridiaceae
+  5. [2,6] Comanmonadaceae
+  6. [2,7] Defluviitaleaceae
+  7. [4,5] Oscillospiraceae
+  8. [4,6] Peptococcaceae
+  9. [4,7] Peptostreptococcaceae
+  10. [5,2] Prevotellaceae
+  11. [5,4] Rikenellaceae
+  12. [5,5] Ruminococcaceae
+  13. [6,1] Veillonellaceae
+
+```{r analysis3.2 mucus vs tissue, 3 hard pairs}
+df %>%
+  filter(Location %in% c('Mucus', 'Tissue'), Extraction == "2021-07-30") %>%
+  ggplot(aes(Location, Proportion, color = Family)) +
+  geom_point() +
+  geom_line(aes(group = Mouse)) +
+  facet_wrap(~Family, scales = 'free_y') +
+  theme(legend.position = 'none')
+```
+Do trends between gentle or harder scraping preps change? What could lead to change?
+1. Decrease suggests more mucus (or tissue) was removed and the bacteria along with it
+2. Increase suggests reduction in mucus (or tissue) made remaining bugs more abundant
+3. More noise suggests additional changes in direction that were not consistent with previous trend.
+
+Example: [3,3] Erysipelotrichaeceae was increased in tissue from gentle scrapings but mixed (increase, decrease and no change) in hard scraping samples.
+It is a quite abundant family, making up ~10% of ASVs in one particular tissue sample. 5-15% of ASVs in the three luminal samples.
+
+- could looking beyond family clear up some of the noise?
+
+
+Increased:
+  1. [1,2] Acholeplasmataceae
+  2. [1,4] Akkermansiaceae
+  3.
+  4. [4,4] Muribaculaceae
+  
+  changed between analysis 3.1 and 3.2
+  5. [5,4] Rikenellaceae
+  6. [5,6] Sutterellaceae
+
+Decreased:
+  1. 
+  
+  changed between analysis 3.1 and 3.2
+  2. [5,2] Prevotellaceae
+
+No change/not really there:
+  1. [1,1] Coprostanoligenes
+  2. [1,6] Bacillaceae
+  3. [2,2] Bifidobacteriaceae
+  4. [2,3] Butyricicoccaceae
+  5. [2,4] Christensenellaceae
+  6. [3,1] Eggerthellaceae
+  7. [3,2] Enterobacteriaceae
+  8. [3,4] Fusobacteriaceae
+  9. [3,5] Lachnospiraceae
+  10. [3,6] Lactobacillaceae
+  11. [3,7] Methanobacteriaceae
+  12. [4,1] Microbacteriaceae
+  13. [4,2] Mitochondria
+  14. [4,3] Monoglobaceae
+  15. [5,1] Planococcaceae
+  16. [5,3] Pseudomonadaceae
+  17. 
+  18. [5,7] UCG-010
+  19. [6,2] Xanthobacteraceae
+
+Present, but noisy:
+  1. [1,3] Acidaminococcaceae
+  2. [1,7] Bacteroidaceae
+  3. [1,8] Barnesiellaceae
+  4. [2,5] Clostridiaceae
+  5. [2,6] Comanmonadaceae
+  6. [2,7] Defluviitaleaceae
+  7. [4,5] Oscillospiraceae
+  8. [4,6] Peptococcaceae
+  9. [4,7] Peptostreptococcaceae
+  10. 
+  11. 
+  12. [5,5] Ruminococcaceae
+  13. [6,1] Veillonellaceae
+  
+  changed between 3.1 and 3.2
+  14. [3,3] Erysipelotrichaeceae
+  15. [1,5] Anaerovoracaceae
+
+
+
+```{r alpha diversity}
+plot_richness(ps, x="sample.names", measures=c("Shannon", "Simpson"), color="Location")
+```
+Harder scrapings tend to have higher diversity in tissue than in mucus.
+
+RE: the message from phyloseq when running this data:
+"the data you have provided does not have any singletons. This is highly suspicious. Results of richness
+estimates (for example) are probably unreliable, or wrong, if you have already trimmed low-abundance taxa from the data."
+
+Outputs from DADA2 are unlikely to have singletons because single reads are often considered as error.
+Especially single reads that are very similar to another more common read, DADA2 often interprets this as sequencing error.
+Were we to expect some very lowly abundant organisms in some samples, we could consider a technique called "pseudopooling", which considers whether the single reads are found in different samples on the same plate. This suggests they are true sequence variants!
+
+Overall, considering singletons only matters if we want to interpret them as reads.
+
+
+```{r Bray Curtis}
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(ps, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+```
+
+```{r}
+# Bray-Curtis ordination
+plot_ordination(ps.prop, ord.nmds.bray, color="Location", title="Bray NMDS")
+```
+
+Luminal samples cluster together, and controls (mock, extraction and water) are grouped together away from most mouse samples.
+Tissue and mucus samples are not easily distinguished however.
+Which points belong to which pairs?
+Does one method of scraping group in pairs and one method seem affect their likeness?
+
+
+
+
+
+
+```{r confirm that "abundance" in melted ps is post-filtering reads per sample}
+ps.m1 = subset_samples(ps, Mouse == "1")
+mouse1 = psmelt(ps.m1)
+colnames(mouse1)
+m1 = ggplot(mouse1, aes(x=Location, y=Abundance, fill=Phylum))
+m1 = m1 + geom_bar(color="black", stat="identity", position="stack") #+ facet_wrap(~Mouse)
+print(m1)
+```
+
+```{r analysis1}
+# transform abundance from read counts to rel abundundance per sample
+ps.m1.rel <- transform_sample_counts(ps.m1, function(OTU) OTU/sum(OTU)) 
+mouse1.rel = psmelt(ps.m1.rel)
+colnames(mouse1.rel)
+m1r = ggplot(mouse1.rel, aes(x=Location, y=Abundance, fill=Phylum))
+m1r = m1r + geom_bar(color="black", stat="identity", position="stack") #+ facet_wrap(~Mouse)
+print(m1r)
+```
+
+```{r}
+# Bar plot, top 20 most abundant families
+top20 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:20]
+ps.top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+ps.top20 <- prune_taxa(top20, ps.top20)
+plot_bar(ps.top20, x="Mouse", fill="Family") + facet_wrap(~Location, scales="free_x")
+```
+
+Plotting the top 20 families only gets us <75% of reads in some samples, <25% of reads than in others. Try plotting more families, say 40. See below!
+
+
+```{r}
+# Bar plot, top 40 most abundant families
+top40 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:40]
+ps.top40 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+ps.top40 <- prune_taxa(top40, ps.top40)
+plot_bar(ps.top40, x="Mouse", fill="Family") + facet_wrap(~Location, scales="free_x")
+```
+Hm, after including most abundant 40 families, now we see abundances of over 1... 
+Something is not right. What are we actually plotting?
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+sessionInfo()
+```
+
