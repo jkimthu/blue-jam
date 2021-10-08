@@ -1,0 +1,103 @@
+---
+title: "ordination plots"
+author: "jen nguyen"
+date: "10/8/2021"
+output: html_document
+---
+
+Overarching question in this ASV level analysis:
+- Are quantifications of distance between paired mucus and tissue communities greater in harder than gentler scraping?
+
+1. Bray-Curtis distance
+    a. ordination of luminal, mucus and tissue samples
+    b. ordination of mucus and tissue samples only
+    - result 1: luminal samples cluster together, but mucus and tissue are not clearly separable.
+    - result 2: no clear separation between gentle and hard scrapings. such is less expected given similarity between mucus and tissue.
+
+2. PCoA
+3. Shannon
+4. Simpson
+
+4. Bray-curtis doesn't yet suggest one way to go. Samples from mucus vs. tissue don't seem to cluster more closely to same location. Rather it might be that the intestinal segment and/or mouse more strongly determines distance between sample communities.
+   - Next step: edit this analysis to determine whether this latter hypothesis could be true.
+   
+
+```{r initialize, include=FALSE}
+library(ggplot2)
+library(here)
+library(phyloseq)
+library(Biostrings)
+library(tidyverse)
+theme_set(theme_bw())
+```
+
+```{r read sample metadata into data frame}
+meta <- read_csv(here("data","meta","sample_metadata.csv"),
+                      col_types = cols(
+                        Name = col_character(),
+                        Extraction = col_date(format = ""),
+                        Mouse = col_character(),
+                        Replicate = col_character(),
+                        Location = col_character()#,
+                        #Pair = col_double()
+                      ))
+df <- meta %>% column_to_rownames("Name")
+```
+
+```{r load dada2 outputs}
+seqtab <- readRDS(here("output","dada2","seqtable.rds")) # raw sequence table
+seqtab.nochim <- readRDS(here("output","dada2","seqtable_nochimeras.rds")) # sequence table w/o chimeras
+taxa <- readRDS(here("output","dada2","taxonomic_assignments.rds")) # taxonomic assignments
+```
+
+```{r construct phyloseq object from dada2 output}
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), 
+               sample_data(df), 
+               tax_table(taxa))
+```
+
+```{r prune out mock, water and extraction controls}
+ps <- prune_samples(sample_names(ps) != "JN18", ps) # Remove extraction control
+ps <- prune_samples(sample_names(ps) != "mock-", ps) # Remove mock sample
+ps <- prune_samples(sample_names(ps) != "mock-2", ps) # Remove mock sample
+ps <- prune_samples(sample_names(ps) != "NTC", ps) # Remove water control
+```
+
+```{r ASV short names}
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna)
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+ps
+```
+
+
+```{r question 1 Bray Curtis, part 1: lumen, mucus, tissue}
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(ps, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+
+# Bray-Curtis ordination
+plot_ordination(ps.prop, ord.nmds.bray, color="Location", shape = "Mouse", title="Bray NMDS")+
+  geom_point(size=2)
+```
+
+```{r question 1 Bray Curtis, part 2: mucus and tissue only}
+ps2 <- prune_samples(sample_names(ps) != "JN01", ps) # Remove luminal sample
+ps2 <- prune_samples(sample_names(ps2) != "JN04", ps2) # Remove luminal sample
+ps2 <- prune_samples(sample_names(ps2) != "JN07", ps2) # Remove luminal sample
+
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop2 <- transform_sample_counts(ps2, function(otu) otu/sum(otu))
+ord.nmds.bray2 <- ordinate(ps.prop2, method="NMDS", distance="bray")
+
+# Bray-Curtis ordination
+plot_ordination(ps.prop2, ord.nmds.bray2, color="Location", shape = "Mouse", title="Bray NMDS")+
+  geom_point(size=2)
+```
+
+
+```{r 1 Bray Curtis, part 3: mucus and tissue only, identifying gentle vs hard}
+plot_ordination(ps.prop2, ord.nmds.bray2, color ="Extraction", shape = "Replicate",  title="Bray NMDS") +
+  geom_point(size=2)
+```

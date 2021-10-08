@@ -5,49 +5,19 @@ date: "9/16/2021"
 output: html_document
 ---
 
-Learned from ddPCR.Rmd: 
-One gut segment without luminal material has a total segment microbial load (S) = microbes from mucus (M) + tissue (T).
-
-Harder scraping technique increases proportion of total reads (S) from mucus (M).
-This increase in M can result from either:
-1. harder scraping collects more mucus and more bacteria
-2. harder scraping collects some tissue-associated bugs
-
-How to distinguish between these two scenarios?
-
-Mucus should be more bacteria dense than tissue (REF). Increasing proportion of S than is M may be due to the possibility that we are collecting more mucus (and therefore more of the mucosal microbiome) with harder scrapings.
-
-This latter hypothesis would be supported by:
-1. the observation that the taxonomic composition of mucus vs. tissue are more distinct in harder scrapings.
-2. the observation that some bugs are only present in tissue samples between gentle and harder scrapings (and not contamination)
-
-
-Questions in this analysis:
-
-1. are quantifications of distance between paired mucus and tissue communities greater in harder than gentler scraping?
-   a. Bray-Curtis distance
-   b. alpha diversity measurements (richness and evenness)
+Questions in this family-level analysis:
    
-2. are specific bacteria/groups only present in tissue samples?
+1. Are any taxa only present in tissue samples? Only mucus? Only lumen?
 
-3. which bacteria are a larger part of the tissue community than other communities?
+2. Which bacteria are a larger part of the tissue community than other communities?
     - e.g. Pédron et al. 2012 find a crypt-specific core microbiota of mouse colon
            Proteobacteria are particularly abundant in crypts:
             a. Moraxellaceae (Fam); Acinetobacter (Genus): 40-50% of crypt microbiome vs. 2% in lumen
             b. Comamonadaceae (Fam); Comomonas (Genus): 2-8% of crypt microbiome
             c. Xanthomonadaceae (Fam); Stenotrophomonas (Genus): 1-30% of crypt microbiome
 
-    - considerations: ratios vs. proportions
-    - proportions can change due to changes outside of the taxon of interest, therefore going with read count RATIOS !
-    - stragety: find a taxon that doesn't change in read count across samples and compare?
-
-4. Are there taxa that consistently change in abundance (ratio) between mucus and tissue samples?
+3. Do any taxa consistently change in abundance between mucus and tissue samples? Mucus and lumen?
     
-This analysis is performed at family level.
-
-4. Bray-curtis doesn't yet suggest one way to go. Samples from mucus vs. tissue don't seem to cluster more closely to same location. Rather it might be that the intestinal segment and/or mouse more strongly determines distance between sample communities.
-   - Next step: edit this analysis to determine whether this latter hypothesis could be true.
-   
 
 ```{r initialize, include=FALSE}
 library(ggplot2)
@@ -63,12 +33,12 @@ meta <- read_csv(here("data","meta","sample_metadata.csv"),
                       col_types = cols(
                         Name = col_character(),
                         Extraction = col_date(format = ""),
-                        Mouse = col_double(),
-                        Replicate = col_double(),
-                        Location = col_character(),
-                        Pair = col_double()
+                        Mouse = col_character(),
+                        Replicate = col_character(),
+                        Location = col_character()#,
+                        #Pair = col_double()
                       ))
-df <- meta %>% column_to_rownames("Name") # data frame with same structure as ben's example
+df <- meta %>% column_to_rownames("Name")
 ```
 
 ```{r load dada2 outputs}
@@ -101,9 +71,6 @@ df <- ps %>%
 #  ungroup
 ```
 
-```{r question 1}
-
-```
 
 ```{r q2.1 quickie family overview by location}
 # 2.1 are specific bacteria/groups only present in tissue samples?
