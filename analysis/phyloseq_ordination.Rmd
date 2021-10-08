@@ -8,19 +8,18 @@ output: html_document
 Overarching question in this ASV level analysis:
 - Are quantifications of distance between paired mucus and tissue communities greater in harder than gentler scraping?
 
-1. Bray-Curtis distance
+Methods
+    1. Bray-Curtis distance by NMDS
+    2. Bray-Curtis distance by PCoA
+
+Plots
     a. ordination of luminal, mucus and tissue samples
     b. ordination of mucus and tissue samples only
-    - result 1: luminal samples cluster together, but mucus and tissue are not clearly separable.
-    - result 2: no clear separation between gentle and hard scrapings. such is less expected given similarity between mucus and tissue.
+    
+Results:    
+    1. luminal samples cluster together, but mucus and tissue are not clearly separable.
+    2. no clear separation between gentle and hard scrapings. such is less expected given similarity between mucus and tissue.
 
-2. PCoA
-3. Shannon
-4. Simpson
-
-4. Bray-curtis doesn't yet suggest one way to go. Samples from mucus vs. tissue don't seem to cluster more closely to same location. Rather it might be that the intestinal segment and/or mouse more strongly determines distance between sample communities.
-   - Next step: edit this analysis to determine whether this latter hypothesis could be true.
-   
 
 ```{r initialize, include=FALSE}
 library(ggplot2)
@@ -72,7 +71,7 @@ ps
 ```
 
 
-```{r question 1 Bray Curtis, part 1: lumen, mucus, tissue}
+```{r 1.1 Bray Curtis, part 1: lumen, mucus, tissue}
 # Transform data to proportions as appropriate for Bray-Curtis distances
 ps.prop <- transform_sample_counts(ps, function(otu) otu/sum(otu))
 ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
@@ -82,7 +81,7 @@ plot_ordination(ps.prop, ord.nmds.bray, color="Location", shape = "Mouse", title
   geom_point(size=2)
 ```
 
-```{r question 1 Bray Curtis, part 2: mucus and tissue only}
+```{r 1.2 Bray Curtis, part 2: mucus and tissue only}
 ps2 <- prune_samples(sample_names(ps) != "JN01", ps) # Remove luminal sample
 ps2 <- prune_samples(sample_names(ps2) != "JN04", ps2) # Remove luminal sample
 ps2 <- prune_samples(sample_names(ps2) != "JN07", ps2) # Remove luminal sample
@@ -97,7 +96,29 @@ plot_ordination(ps.prop2, ord.nmds.bray2, color="Location", shape = "Mouse", tit
 ```
 
 
-```{r 1 Bray Curtis, part 3: mucus and tissue only, identifying gentle vs hard}
+```{r 1.3 Bray Curtis, part 3: mucus and tissue only, identifying gentle vs hard}
 plot_ordination(ps.prop2, ord.nmds.bray2, color ="Extraction", shape = "Replicate",  title="Bray NMDS") +
+  geom_point(size=2)
+```
+
+
+```{r 2.1 Bray Curtis, PCoA: lumen, mucus, tissue}
+ord.nmds.bray3 <- ordinate(ps.prop, method="PCoA", distance="bray")
+
+# Bray-Curtis ordination
+plot_ordination(ps.prop, ord.nmds.bray3, color="Location", shape = "Mouse", title="Bray PCoA")+
+  geom_point(size=2)
+```
+
+```{r 2.2 Bray Curtis, PCoA: mucus and tissue only}
+ord.nmds.bray4 <- ordinate(ps.prop2, method="PCoA", distance="bray")
+
+# Bray-Curtis ordination
+plot_ordination(ps.prop2, ord.nmds.bray4, color="Location", shape = "Mouse", title="Bray PCoA")+
+  geom_point(size=2)
+```
+
+```{r 2.3 Bray Curtis, PCoA: mucus and tissue only, identifying gentle vs hard}
+plot_ordination(ps.prop2, ord.nmds.bray4, color ="Extraction", shape = "Replicate",  title="Bray PCoA") +
   geom_point(size=2)
 ```
