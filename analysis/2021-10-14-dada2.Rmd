@@ -1,0 +1,213 @@
+---
+title: "dada2 analysis for blue-jam project"
+author: "jen nguyen"
+date: "10/14/2021"
+output: html_notebook
+---
+
+Samples collected on 2021-07-23 and 2021-07-30 were re-sequenced by Gut4Health (different library prep from first sequencing run). This R Markdown file analyses those new sequences, received by Jen on October 7, 2021.
+
+Differences between this sequencing run and the last:
+  
+  1. The re-sequenced data is named Jen01 etc, while the data from the first sequencing run is       named JN01.
+  
+  2. The forward and reverse reads in the re-sequenced data together span V3V4 (~443 bp) instead      of only V4 (~254bp).
+
+```{r}
+library(dada2); packageVersion("dada2")
+library(ggplot2)
+library(here)
+library(phyloseq)
+library(Biostrings)
+library(tidyverse)
+library(fs)
+```
+
+```{r}
+path_raw <- here::here("Documents/TropiniLab/Data/Sequencing/2021-10-07/raw")
+path_filtered <- here::here("Documents/TropiniLab/Data/Sequencing/2021-10-07/filtered")
+list.files(path_raw)
+```
+
+```{r}
+# Forward and reverse fastq filenames have format: SAMPLENAME_R1_001.fastq and SAMPLENAME_R2_001.fastq
+fnFs <- sort(list.files(path_raw, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path_raw, pattern="_R2_001.fastq", full.names = TRUE))
+fnFs %>% path_file %>% head
+```
+
+```{r}
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+print(sample.names)
+```
+
+```{r check fwd reads of first two samples}
+plotQualityProfile(fnFs[1:2]) +
+  geom_vline(xintercept = 248) # truncation length of forward reads
+```
+```{r check rev reads of first two samples}
+plotQualityProfile(fnRs[1:2]) +
+  geom_vline(xintercept = 225) # truncation length of reverse reads
+```
+```{r check rev reads of final two samples}
+plotQualityProfile(tail(fnRs,2)) +
+  geom_vline(xintercept = 225) # truncation length of reverse reads
+```
+
+```{r prepare to place filtered files in filtered/ subdirectory}
+filtFs <- file.path(path_filtered, paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path_filtered, paste0(sample.names, "_R_filt.fastq.gz"))
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+```
+
+```{r place filtered files in filtered/ subdirectory}
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(248,225),
+              maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+              compress=TRUE, multithread=TRUE) # On Windows set multithread=FALSE
+head(out)
+```
+Much higher read yield than the first sequencing run, which had many samples in the low thousands!
+
+```{r learn the error rates, fwd}
+errF <- learnErrors(filtFs, multithread=TRUE)
+```
+```{r learn the error rates, rev}
+errR <- learnErrors(filtRs, multithread=TRUE)
+```
+
+
+```{r plot learned error rates}
+plotErrors(errF, nominalQ=TRUE)
+```
+Wisdoms from Mike:
+DADA2 uses our own data (dots) to calculate error rates (model = black line).
+Sometimes the expected error based on the nominal definition of Q-score (red line) matches
+error seen in our data. But often, we have a higher error rate and DADA2 will use this.
+
+More sequencing data is more info for the model.
+A good fit between model and observed data (black line and dots) means
+We now have good understanding of error rates in our data!
+
+```{r sample inference, fwd}
+dadaFs <- dada(filtFs, err=errF, multithread=TRUE)
+```
+
+```{r sample inference, rev}
+dadaRs <- dada(filtRs, err=errR, multithread=TRUE)
+```
+
+```{r}
+dadaFs[[1]]
+```
+
+Notes from DADA2 tutorial:
+The DADA2 algorithm inferred 489 true sequence variants from the 38609 unique sequences in the first sample. There is much more to the dada-class return object than this (see help("dada-class") for some info), including multiple diagnostics about the quality of each denoised sequence variant.
+
+```{r merge paired reads}
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose=TRUE)
+```
+
+```{r construct sequence table}
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+```
+
+
+```{r inspect distribution of sequence lengths}
+table(nchar(getSequences(seqtab)))
+```
+
+
+```{r remove chimeras}
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+```
+
+```{r calculate fraction of reads that were chimeras}
+sum(seqtab.nochim)/sum(seqtab)
+```
+Chimeras make up a substantial portion (~15%) of merged sequence variants, but are only about 1% of the merge sequenced reads when accounting for the abundance of these variants.
+
+```{r track reads through the pipeline}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+# If processing a single sample, remove the sapply calls: e.g. replace sapply(dadaFs, getN) with getN(dadaFs)
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+head(track)
+write.csv(track, here::here('blue-jam/output', 'dada2', 'track_Oct14.csv'))
+```
+* Wisdoms from Mike *
+Some of the lower read count samples are losing lots of reads in the filtering step.
+We can avoid some loss in various ways, including trimming more to remove noisier overlap.
+This increased trimming/truncation is especially possible with shorter reads (V4 vs V3V4).
+
+
+```{r locate taxonomy database files}
+here('blue-jam/data', 'database') %>% list.files()
+```
+
+
+```{r assign taxonomy using the training set}
+taxa <- assignTaxonomy(
+  seqtab.nochim, 
+  here("databases", "silva_nr99_v138.1_train_set.fa.gz"),
+  multithread=TRUE
+)
+```
+
+```{r add species}
+taxa <- addSpecies(
+  taxa, 
+  here("databases", "silva_species_assignment_v138.1.fa.gz"),
+  allowMultiple = TRUE
+)
+```
+
+```{r inspect taxonomic assignments}
+taxa.print <- taxa # Removing sequence row names for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+```
+
+```{r evaluate accuracy, mock}
+unqs.mock <- seqtab.nochim["mock2",]
+unqs.mock <- sort(unqs.mock[unqs.mock>0], decreasing=TRUE) # Drop ASVs absent in the Mock
+cat("DADA2 inferred", length(unqs.mock), "sample sequences present in the Mock community.\n")
+```
+The ZymoBIOMICS Gut Microbiome Standard has 21 species!
+Less truncation gave 21 ASVs in Mock Community whereas more truncation gives 29!
+
+```{r evaluate accuracy, water control}
+unqs.water <- seqtab.nochim["NTC2",]
+unqs.water <- sort(unqs.mock[unqs.water>0], decreasing=TRUE) # Drop ASVs absent in the Mock
+cat("DADA2 inferred", length(unqs.water), "sample sequences present in the water control\n")
+```
+
+Hm, how to interpret this?
+
+More ASVs than species in the mock community can arise by having multiple 16S sequences per species. This is something to check from the sequences available from the mock communities.
+
+More ASVs can also arise via contamination. If there is a sequence in the mock as well as in the samples, then this is good evidence of contamination.
+
+```{r, eval = FALSE}
+mock.ref <- getSequences(file.path(path, "HMP_MOCK.v35.fasta"))
+match.ref <- sum(sapply(names(unqs.mock), function(x) any(grepl(x, mock.ref))))
+cat("Of those,", sum(match.ref), "were exact matches to the expected reference sequences.\n")
+```
+
+Skipped checking that mock community sequences were exact matches to expected reference sequences because the files associated with our community are currently available in a different format.
+
+```{r saving DADA2 output}
+saveRDS(seqtab.nochim,file=here("blue-jam/output","dada2_20211014","seqtable_nochimeras_oct14.rds"))
+saveRDS(seqtab,file=here("blue-jam/output","dada2_20211014","seqtable_oct14.rds"))
+saveRDS(taxa,file=here("blue-jam/output","dada2_20211014","taxonomic_assignments_oct14.rds"))
+```
+
+
+```{r}
+sessionInfo()
+```
+
