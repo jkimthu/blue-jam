@@ -1,0 +1,195 @@
+---
+title: "dada2 analysis for blue-jam project: revised for library details"
+author: "jen nguyen"
+date: "12/06/2021"
+output: html_notebook
+---
+
+Samples collected on 2021-07-23 and 2021-07-30 were re-sequenced by Gut4Health (different library prep from first sequencing run). This R Markdown file is the revised analysis of the 3rd sequencing run, received by Jen on November 22, 2021.
+
+This 3rd run used the Gut4Health in house library prep.
+
+This prep kit uses these primers, which are sequenced and included in the reads:
+16S V3-V4 Primer Sequences (adapters not included) – 341f (CCTACGGGDGGCWGCAG, CCTAYGGGGYGCWGCAG, 17 bp) and 806r (GACTACNVGGGTMTCTAATCC, 24 bp). The forward primer 341f is a mixture of the two sequences listed.
+
+Expected lengths of sequenced amplicons (primers + 16S region) from 16S 1 of each bacterial species in mock:
+  - B. subtilis = 466 bp
+  - E. faecalis = 465 bp
+  - E. coli = 465 bp
+  - L. fermentum = 465 bp
+  - L. monocytogenes = 465 bp
+  - P. aeruginosa = 465 bp
+  - S. enteria = 465 bp
+  - S. aureus = 465 bp
+
+
+This dada2 analysis uses the same parameters as the analysis performed in 2021-09-07.Rmd, 
+which analyses the 1st sequencing run on these DNA samples. Gut4Health used the same library prep and sequencer in that 1st run and this 3rd run, so we use the same dada2 parameters:
+  1. No trimming at beginning of reads.
+  2. Truncates fwd reads at 200 bp.
+  3. Truncates rev reads at 150 bp.
+  4. Requires 12 bp overlap to merge reads.
+
+
+
+```{r import libraries, include=FALSE}
+library(dada2); packageVersion("dada2")
+library(ggplot2)
+library(here)
+library(phyloseq)
+library(Biostrings)
+library(tidyverse)
+library(fs)
+```
+
+```{r define paths to seq data}
+path_raw <- "/Users/jen/Documents/TropiniLab/Data/Sequencing/2021-11-22/raw"
+path_filtered <- "/Users/jen/Documents/TropiniLab/Data/Sequencing/2021-11-22/filtered"
+list.files(path_raw)
+```
+
+```{r format forward and reverse fastq filenames}
+# SAMPLENAME_R1_001.fastq and SAMPLENAME_R2_001.fastq
+fnFs <- sort(list.files(path_raw, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path_raw, pattern="_R2_001.fastq", full.names = TRUE))
+fnFs %>% path_file %>% head
+```
+
+```{r extract sample names}
+# assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+print(sample.names)
+```
+
+```{r check fwd reads of first two samples}
+plotQualityProfile(fnFs[1:2]) +
+  geom_vline(xintercept = c(200)) # truncation length of fwd reads
+```
+```{r check rev reads of first two samples}
+plotQualityProfile(fnRs[1:2]) +
+  geom_vline(xintercept = c(150)) # trim & truncation length of rev reads
+```
+
+```{r prepare to place filtered files in filtered/ subdirectory}
+filtFs <- file.path(path_filtered, paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path_filtered, paste0(sample.names, "_R_filt.fastq.gz"))
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+```
+
+```{r place filtered files in filtered/ subdirectory}
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(200,150),
+              maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+              compress=TRUE, multithread=TRUE) # , trimLeft=c(17,17) removed left trim from Nov 22 analysis to 100% mirror 1st run analysis (2021-09-07.Rmd)
+head(out)
+```
+
+```{r learn the error rates and perform sample inference}
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+plotErrors(errF, nominalQ=TRUE)
+
+dadaFs <- dada(filtFs, err=errF, multithread=TRUE)
+dadaRs <- dada(filtRs, err=errR, multithread=TRUE)
+dadaFs[[1]]
+```
+
+```{r merge paired reads}
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose=TRUE)
+```
+
+```{r construct sequence table}
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+```
+
+
+```{r inspect distribution of sequence lengths}
+table(nchar(getSequences(seqtab)))
+```
+
+
+```{r remove chimeras}
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+```
+
+```{r calculate fraction of reads that were chimeras}
+sum(seqtab.nochim)/sum(seqtab)
+```
+
+```{r track reads through the pipeline}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+# If processing a single sample, remove the sapply calls: e.g. replace sapply(dadaFs, getN) with getN(dadaFs)
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+head(track)
+write.csv(track, here::here('output', 'dada2', 'track_dec06.csv'))
+```
+
+```{r locate taxonomy database files}
+"/Users/jen/databases" %>% list.files()
+```
+
+
+```{r assign taxonomy using the training set}
+taxa <- assignTaxonomy(
+  seqtab.nochim, 
+  "/Users/jen/databases/silva_nr99_v138.1_train_set.fa.gz",
+  multithread=TRUE
+)
+```
+
+```{r add species}
+taxa <- addSpecies(
+  taxa, 
+  "/Users/jen/databases/silva_species_assignment_v138.1.fa.gz",
+  allowMultiple = TRUE
+)
+```
+
+```{r inspect taxonomic assignments}
+taxa.print <- taxa # Removing sequence row names for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+```
+
+```{r evaluate accuracy, mock}
+unqs.mock <- seqtab.nochim["mock2",]
+unqs.mock <- sort(unqs.mock[unqs.mock>0], decreasing=TRUE) # Drop ASVs absent in the Mock
+cat("DADA2 inferred", length(unqs.mock), "sample sequences present in the Mock community.\n")
+```
+The ZymoBIOMICS Gut Microbiome Standard has 21 species!
+Less truncation gave 21 ASVs in Mock Community whereas more truncation gives 29!
+
+```{r evaluate accuracy, water control}
+unqs.water <- seqtab.nochim["NTC2"]
+unqs.water <- sort(unqs.mock[unqs.water>0], decreasing=TRUE) # Drop ASVs absent in the Mock
+cat("DADA2 inferred", length(unqs.water), "sample sequences present in the water control\n")
+```
+
+
+```{r, eval = FALSE}
+mock.ref <- getSequences(file.path(path, "HMP_MOCK.v35.fasta"))
+match.ref <- sum(sapply(names(unqs.mock), function(x) any(grepl(x, mock.ref))))
+cat("Of those,", sum(match.ref), "were exact matches to the expected reference sequences.\n")
+```
+
+Skipped checking that mock community sequences were exact matches to expected reference sequences because the files associated with our community are currently available in a different format.
+
+```{r saving DADA2 output}
+saveRDS(seqtab.nochim,file=here("output","dada2_run3","seqtable_nochimeras_dec06.rds"))
+saveRDS(seqtab,file=here("output","dada2_run3","seqtable_dec06.rds"))
+saveRDS(taxa,file=here("output","dada2_run3","taxonomic_assignments_dec06.rds"))
+saveRDS(errF,file=here("output","dada2_run3","errF_dec06.rds"))
+saveRDS(errR,file=here("output","dada2_run3","errR_dec06.rds"))
+saveRDS(dadaFs,file=here("output","dada2_run3","dadaFs_dec06.rds"))
+saveRDS(dadaRs,file=here("output","dada2_run3","dadaRs_dec06.rds"))
+```
+
+
+```{r}
+sessionInfo()
+```
+
