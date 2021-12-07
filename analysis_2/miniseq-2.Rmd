@@ -98,7 +98,8 @@ df %>%
 df %>%
   filter(Sample == 'mock2') %>%
   ggplot(aes(x=Sample, y=Proportion, fill= Genus)) + 
-  geom_col()
+  geom_col() +
+  theme(legend.position = 'none')
 ```
 ```{r composition of mock}
 df_mock <- df %>%

@@ -61,7 +61,7 @@ ps
 
 ```{r melt ps object into dataframe}
 df <- ps %>%
-  tax_glom("Family") %>%
+  tax_glom("Species") %>%
   psmelt %>%
   with_groups(Sample, mutate, Proportion = Abundance / sum(Abundance))
 #  group_by(Sample) %>%
@@ -132,6 +132,9 @@ df %>%
 ```
 ```{r composition of mock}
 df_mock <- df %>%
+  filter(Sample == 'mock-')
+
+df_mock2 <- df %>%
   filter(Sample == 'mock-2')
 ```
 

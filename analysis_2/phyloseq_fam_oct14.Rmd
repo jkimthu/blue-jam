@@ -126,8 +126,8 @@ df %>%
 df %>%
   filter(Sample %in% c('Jen18', 'mock2', 'NTC2')) %>%
   ggplot(aes(x=Sample, y=Proportion, fill= Family)) + 
-  geom_col() + facet_wrap(~Mouse, scales = 'free_x') +
-  theme(legend.position = 'none')
+  geom_col() + facet_wrap(~Mouse, scales = 'free_x') #+
+  #theme(legend.position = 'none')
 ```
 
 
